@@ -1,8 +1,11 @@
 import praw
 from dotenv import load_dotenv
 import os
+import pandas as pd
 
 load_dotenv()
+
+docs = []
 
 reddit = praw.Reddit(
     client_id=os.getenv("CLIENT_ID"),
@@ -14,8 +17,13 @@ reddit = praw.Reddit(
 
 # print(reddit.user.me())
 
-# get 10 hot posts from the MachineLearning subreddit
-hot_posts = reddit.subreddit('MachineLearning').hot(limit=10)
-for post in hot_posts:
-    print(post.title)
+posts = []
+subreddit_name = reddit.subreddit('Basketball')
+for post in subreddit_name.hot(limit=10):
+    posts.append([post.title, post.score, post.id, post.subreddit, post.url, post.num_comments, post.selftext, post.created])
+    docs.append(post.selftext.replace('\n', ' '))
+posts = pd.DataFrame(posts,columns=['title', 'score', 'id', 'subreddit', 'url', 'num_comments', 'body', 'created'])
+# print(posts)
+print(docs)
+
 
