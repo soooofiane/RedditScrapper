@@ -1,6 +1,6 @@
 CREATE YOUR VENV FIRST
 
-python -m venv
+python -m venv ./venv
 
 INSTALL DEPENDENCIES FROM THE REQUIREMENTS FILE
 
