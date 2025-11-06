@@ -12,7 +12,7 @@ docs = []
 
 ############ PARTIE 1 ################
 
-# 1.1: FETCH WITH REDDIT 
+# 1.1: FETCH WITH REDDIT
 reddit = praw.Reddit(
     client_id=os.getenv("CLIENT_ID"),
     client_secret=os.getenv("CLIENT_SECRET"),
@@ -21,15 +21,19 @@ reddit = praw.Reddit(
     username=os.getenv("USER_NAME"),
 )
 
-# print(reddit.user.me())
-
 posts = []
 subreddit_name = reddit.subreddit('Basketball')
 for post in subreddit_name.hot(limit=10):
+    # extraire nom de l'auteur si disponible
+    try:
+        author_name = post.author.name if (post.author is not None) else ''
+    except Exception:
+        author_name = ''
     posts.append([post.title, post.score, post.id, post.subreddit, post.url, post.num_comments, post.selftext, post.created])
     docs.append({
         'text': post.selftext.replace('\n', ' '),
-        'source': 'reddit'
+        'source': 'reddit',
+        'authors': [author_name] if author_name else []
     })
 posts = pd.DataFrame(posts,columns=['title', 'score', 'id', 'subreddit', 'url', 'num_comments', 'body', 'created'])
 # print(posts)
@@ -55,45 +59,85 @@ with urllib.request.urlopen(full_url) as response:
 # Parse XML into Python dict
 parsed = xmltodict.parse(xml_data)
 
-# Access and print entries
+# Access entries, s'assurer d'avoir une liste
 entries = parsed['feed'].get('entry', [])
+if isinstance(entries, dict):
+    entries = [entries]
 
 # Print basic info from each entry
 for entry in entries:
+    # extraire résumé
+    summary = entry.get('summary', '') if isinstance(entry, dict) else ''
+    # extraire auteurs (peut être dict ou liste)
+    authors_field = entry.get('author', [])
+    if isinstance(authors_field, dict):
+        authors_field = [authors_field]
+    names = []
+    if isinstance(authors_field, list):
+        for a in authors_field:
+            if isinstance(a, dict):
+                name = a.get('name', '')
+                if name:
+                    names.append(name.strip())
     docs.append({
-        'text': entry['summary'],
-        'source': 'arxiv'
+        'text': summary.replace('\n', ' '),
+        'source': 'arxiv',
+        'authors': names
     })
-    """
-    print(f"Title: {entry['title'].strip()}")
-    print(f"ID: {entry['id']}")
-    print(f"Published: {entry['published']}")
-    print(f"Summary: {entry['summary']}")  # First 100 chars
-    print('-' * 60)
-    """
 
-
-print(docs)
+# compact display
+# print(docs)
 
 ############ PARTIE 2 ################
 
 # Create an empty list to hold rows
 rows = []
 
-# Basic loop to build each row
+# Basic loop to build each row (inclut authors)
 i = 1
 for doc in docs:
     row = {
         'id': i,
-        'text': doc['text'],
-        'source': doc['source']
+        'text': doc.get('text', ''),
+        'source': doc.get('source', ''),
+        'authors': doc.get('authors', [])  # stocker en liste pour usage interne
     }
     rows.append(row)
     i += 1
 
 # Create DataFrame from the list of rows
 df = pd.DataFrame(rows)
-df.to_csv('texts_dataset.csv', sep='\t', index=False)
+
+# Construire id2doc et id2aut
+id2doc = {}
+id2aut = {}
+
+for _, row in df.iterrows():
+    doc_id = int(row['id'])
+    authors = row.get('authors', [])
+    # si, par hasard, la colonne authors est une chaîne (ex: lors d'un reload), la convertir en liste
+    if isinstance(authors, str):
+        authors = authors.split('|') if authors else []
+    id2doc[doc_id] = {
+        'text': row.get('text', ''),
+        'source': row.get('source', ''),
+        'authors': authors
+    }
+    for a in authors:
+        if a not in id2aut:
+            # instance minimale d'auteur : nom + liste des ids de documents
+            id2aut[a] = {'name': a, 'doc_ids': [doc_id]}
+        else:
+            id2aut[a]['doc_ids'].append(doc_id)
+
+print(f"Nombre de docs (id2doc): {len(id2doc)}")
+print(f"Nombre d'auteurs uniques (id2aut): {len(id2aut)}")
+
+# Avant de sauvegarder, convertir authors en chaîne séparée par '|' pour le CSV
+df_to_save = df.copy()
+df_to_save['authors'] = df_to_save['authors'].apply(lambda lst: '|'.join(lst) if isinstance(lst, list) else (lst if pd.notna(lst) else ''))
+
+df_to_save.to_csv('texts_dataset.csv', sep='\t', index=False)
 
 
 
