@@ -1,4 +1,14 @@
-class Corpus:
+from datetime import datetime
+from typing import Dict
+# Singleton metaclass
+class Singleton(type):
+    _instances: Dict[type, object] = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+class Corpus(metaclass=Singleton):
     """
     Représente un corpus :
     - nom : nom du corpus
@@ -9,6 +19,7 @@ class Corpus:
     """
 
     def __init__(self, nom):
+        # __init__ peut être appelé une seule fois grâce au Singleton metaclass
         self.nom = nom
         self.authors = {}
         self.id2doc = {}
@@ -51,28 +62,44 @@ class Corpus:
 
     def show_by_date(self, n=10):
         """Affiche n documents triés par date (si possible)."""
-        def parse_date(d):
-            if d is None:
-                return ''
+        def to_epoch(d):
+            if d is None or d == '':
+                return float('-inf')
             try:
-                from datetime import datetime
-                return datetime.fromisoformat(str(d))
+                # ISO formats (aware ou naive)
+                dt = datetime.fromisoformat(str(d))
             except Exception:
                 try:
-                    return datetime.fromtimestamp(float(d))
+                    # timestamp numérique stocké sous forme de chaîne
+                    return float(d)
                 except Exception:
-                    return str(d)
+                    try:
+                        # fallback: fromtimestamp si d est un nombre
+                        return datetime.fromtimestamp(float(d)).timestamp()
+                    except Exception:
+                        # optionnel : utiliser dateutil si disponible
+                        try:
+                            from dateutil import parser
+                            dt = parser.parse(str(d))
+                        except Exception:
+                            return float('-inf')
+            # dt peut être aware ou naive — timestamp() gère les deux correctement
+            try:
+                return dt.timestamp()
+            except Exception:
+                return float('-inf')
+
         items = list(self.id2doc.items())
-        items_sorted = sorted(items, key=lambda kv: parse_date(getattr(kv[1], 'date', getattr(kv[1], 'date', ''))), reverse=True)
+        items_sorted = sorted(items, key=lambda kv: to_epoch(getattr(kv[1], 'date', '')), reverse=True)
         for did, doc in items_sorted[:n]:
-            print(f"[{did}] {getattr(doc, 'titre', '')} — {getattr(doc, 'date', '')} — auteurs: {getattr(doc, 'auteur', '')}")
+            print(f"[{did}] {getattr(doc, 'titre', '')} — {getattr(doc, 'date', '')} — type: {getattr(doc, 'type', '')} — auteurs: {getattr(doc, 'auteur', '')}")
 
     def show_by_title(self, n=10):
         """Affiche n documents triés par titre."""
         items = list(self.id2doc.items())
         items_sorted = sorted(items, key=lambda kv: (getattr(kv[1], 'titre', '') or '').lower())
         for did, doc in items_sorted[:n]:
-            print(f"[{did}] {getattr(doc, 'titre', '')} — {getattr(doc, 'date', '')} — auteurs: {getattr(doc, 'auteur', '')}")
+            print(f"[{did}] {getattr(doc, 'titre', '')} — {getattr(doc, 'date', '')} — type: {getattr(doc, 'type', '')} — auteurs: {getattr(doc, 'auteur', '')}")
 
     def __repr__(self):
         return f"Corpus(name={self.nom}, ndoc={self.ndoc}, naut={self.naut})"
@@ -86,7 +113,7 @@ class Corpus:
                 'id': did,
                 'title': getattr(doc, 'titre', '') or '',
                 'text': getattr(doc, 'texte', '') or '',
-                'source': getattr(doc, 'source', '') or '',
+                'source': getattr(doc, 'type', '') or '',
                 'authors': getattr(doc, 'auteur', '') or '',
                 'url': getattr(doc, 'url', '') or '',
                 'created': getattr(doc, 'date', '') or ''
@@ -100,20 +127,22 @@ class Corpus:
     def load(cls, path, nom=None):
         """Charge un corpus depuis un CSV créé par save()."""
         import pandas as pd
-        from classes.Document import Document
+        from classes.Document import DocumentFactory
         if nom is None:
             nom = path
         df = pd.read_csv(path, sep='\t', dtype=str).fillna('')
         corpus = cls(nom)
         for _, row in df.iterrows():
             did = int(row['id'])
-            titre = row.get('title', '') or ''
-            texte = row.get('text', '') or ''
-            auteur = row.get('authors', '') or ''
-            url = row.get('url', '') or ''
-            created = row.get('created', '') or ''
-            # créer Document
-            doc_obj = Document(titre=titre, auteur=auteur, date=created, url=url, texte=texte)
+            data = {
+                'title': row.get('title', ''),
+                'text': row.get('text', ''),
+                'source': row.get('source', ''),
+                'authors': row.get('authors', ''),
+                'url': row.get('url', ''),
+                'created': row.get('created', '')
+            }
+            doc_obj = DocumentFactory.create_from_dict(data)
             corpus.add_doc(doc_obj, doc_id=did)
         return corpus
 
