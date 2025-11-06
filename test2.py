@@ -8,6 +8,7 @@ import praw
 from datetime import datetime
 from classes.Document import Document
 from classes.Author import Author
+from classes.Corpus import Corpus
 
 load_dotenv()
 
@@ -173,89 +174,47 @@ else:
     df.to_csv(CSV_PATH, sep='\t', index=False)
     print(f"Sauvegardé {len(df)} entrées dans '{CSV_PATH}'.")
 
+# Après avoir construit/chargé df, créer et remplir le Corpus
+corpus = Corpus('BasketballCorpus')
 
-
-# Affichage rapide pour vérification
-print(df.head())
-print("Nombre d'items dans docs :", len(docs))
-# posts (Reddit) est défini seulement si on a fait l'appel; sinon DataFrame vide
-try:
-    print("Aperçu posts Reddit (si présent) :")
-    print(posts.head())
-except NameError:
-    pass
-
-# PARTIE 3
-
-# 3.1
-print("Taille du corpus :", len(df))
-
-# 3.2
-df['text'] = df['text'].fillna('')
-df['nb_mots'] = df['text'].apply(lambda x: len(x.split()))
-df['nb_phrases'] = df['text'].apply(lambda x: len(x.split('.')))
-print(df[['id', 'nb_mots', 'nb_phrases']])
-
-# 3.3
-df = df[df['text'].str.len() >= 20].reset_index(drop=True)
-docs = [{'text': row['text'], 'source': row['source']} for _, row in df.iterrows()]
-print("Taille du corpus après suppression des petits documents :", len(df))
-
-# 3.4
-corpus_str = ' '.join(df['text'].tolist())
-print("Corpus unique (extrait) :", corpus_str[:100])
-
-# Construire id2doc et id2aut
-# veiller à ce que la colonne 'authors' soit une liste (si chargée depuis CSV, load_from_csv l'a déjà convertie)
-if 'authors' in df.columns and df['authors'].dtype == object and isinstance(df.loc[0, 'authors'], str):
-    # cas improbable si build_dataframe_from_docs a été utilisé, mais au cas où : convertir
-    df['authors'] = df['authors'].fillna('').apply(lambda s: s.split('|') if s != '' else [])
-
-id2doc = {}   # clé -> instance de Document
-id2aut = {}   # clé -> instance d'Author
-
+# si df contient des lignes, instancier Document et ajouter au corpus en conservant l'id
 for _, row in df.iterrows():
     doc_id = int(row['id'])
-    # s'assurer que authors est une liste
-    authors = row.get('authors', [])
-    if isinstance(authors, str):
-        authors = authors.split('|') if authors != '' else []
-    # récupérer champs s'ils existent dans le DataFrame (sinon valeurs par défaut)
     texte = row.get('text', '') or ''
     titre = row.get('title', '') if 'title' in df.columns else ''
     url = row.get('url', '') if 'url' in df.columns else ''
     created = row.get('created', '') if 'created' in df.columns else ''
-    # si created est un timestamp numérique (ex: float), tenter conversion en ISO
-    try:
-        if created not in (None, '') and not isinstance(created, str):
-            created = datetime.fromtimestamp(float(created)).isoformat()
-    except Exception:
-        created = str(created)
-
-    # construire chaîne auteur (on stocke la liste dans l'objet Document sous forme de chaîne)
-    auteur_str = '|'.join(authors) if isinstance(authors, (list, tuple)) else str(authors)
-
-    # instancier Document
+    # auteurs : peut être liste (load_from_csv) ou chaîne "a|b"
+    authors = row.get('authors', [])
+    if isinstance(authors, list):
+        auteur_str = '|'.join(authors)
+    else:
+        auteur_str = authors or ''
     doc_obj = Document(titre=titre, auteur=auteur_str, date=str(created), url=url, texte=texte)
+    corpus.add_doc(doc_obj, doc_id=doc_id)
 
-    # ajouter l'objet au dictionnaire id2doc
-    id2doc[doc_id] = doc_obj
+print(corpus)  # utilise __repr__
 
-    # alimenter id2aut : clé = nom auteur unique (instance Author)
-    for a in authors:
-        if a not in id2aut:
-            id2aut[a] = Author(a)
-        # stocker le document (on donne l'objet Document et l'id)
-        id2aut[a].add(doc_id, doc_obj)
+# Affichage rapide pour vérification
+print(df.head())
+print("Nombre d'items dans docs (raw list) :", len(docs))
+print("Nombre de docs dans corpus :", corpus.ndoc)
+print("Nombre d'auteurs dans corpus :", corpus.naut)
 
-print(f"Nombre de docs (id2doc): {len(id2doc)}")
-print(f"Nombre d'auteurs uniques (id2aut): {len(id2aut)}")
+# Exemple d'utilisation des méthodes d'affichage
+print("\nTop documents triés par date :")
+corpus.show_by_date(5)
 
+print("\nTop documents triés par titre :")
+corpus.show_by_title(5)
+
+# Sauvegarde du corpus
+corpus.save(CSV_PATH)
 
 # --- Statistiques par auteur (interactif) ---
-def author_stats(author_name, id2aut, id2doc):
+def author_stats(author_name, corpus):
     """Retourne (nb_docs, avg_words) pour un auteur donné."""
-    author_obj = id2aut.get(author_name)
+    author_obj = corpus.authors.get(author_name)
     if author_obj is None:
         return None
     doc_ids = list(author_obj.production.keys())
@@ -264,8 +223,7 @@ def author_stats(author_name, id2aut, id2doc):
         return (0, 0.0)
     total_words = 0
     for did in doc_ids:
-        # préférer l'objet stocké dans production, fallback sur id2doc si nécessaire
-        doc_obj = author_obj.production.get(did) or id2doc.get(did)
+        doc_obj = author_obj.production.get(did) or corpus.id2doc.get(did)
         text = ''
         if doc_obj is not None:
             text = getattr(doc_obj, 'texte', '') or getattr(doc_obj, 'text', '') or ''
@@ -280,9 +238,9 @@ try:
         if name.lower() in ('q', 'quit', 'exit', ''):
             print("Fin des requêtes.")
             break
-        res = author_stats(name, id2aut, id2doc)
+        res = author_stats(name, corpus)
         if res is None:
-            print(f"Auteur '{name}' introuvable dans id2aut.")
+            print(f"Auteur '{name}' introuvable dans le corpus.")
         else:
             nb_docs, avg_words = res
             print(f"Auteur : {name}")

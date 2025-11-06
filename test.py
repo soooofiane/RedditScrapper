@@ -5,6 +5,9 @@ import pandas as pd
 import urllib.parse
 import urllib.request
 import xmltodict
+import ssl
+import certifi
+import requests
 
 load_dotenv()
 
@@ -21,22 +24,26 @@ reddit = praw.Reddit(
     username=os.getenv("USER_NAME"),
 )
 
-posts = []
-subreddit_name = reddit.subreddit('Basketball')
-for post in subreddit_name.hot(limit=10):
-    # extraire nom de l'auteur si disponible
-    try:
-        author_name = post.author.name if (post.author is not None) else ''
-    except Exception:
-        author_name = ''
-    posts.append([post.title, post.score, post.id, post.subreddit, post.url, post.num_comments, post.selftext, post.created])
-    docs.append({
-        'text': post.selftext.replace('\n', ' '),
-        'source': 'reddit',
-        'authors': [author_name] if author_name else []
-    })
-posts = pd.DataFrame(posts,columns=['title', 'score', 'id', 'subreddit', 'url', 'num_comments', 'body', 'created'])
-# print(posts)
+try:
+    posts = []
+    subreddit_name = reddit.subreddit('Basketball')
+    for post in subreddit_name.hot(limit=10):
+        try:
+            author_name = post.author.name if (post.author is not None) else ''
+        except Exception:
+            author_name = ''
+        posts.append([post.title, post.score, post.id, post.subreddit, post.url, post.num_comments, post.selftext, post.created])
+        docs.append({
+            'text': post.selftext.replace('\n', ' '),
+            'source': 'reddit',
+            'authors': [author_name] if author_name else []
+        })
+    posts = pd.DataFrame(posts, columns=['title','score','id','subreddit','url','num_comments','body','created'])
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print("Erreur lors de la récupération Reddit :", e)
+    posts = pd.DataFrame()
 
 # 1.2: FETCH WITH ARXIV
 
@@ -52,8 +59,9 @@ params = {
 query_string = urllib.parse.urlencode(params)
 full_url = f'{base_url}?{query_string}'
 
-# Send request and read response
-with urllib.request.urlopen(full_url) as response:
+# Send request and read response (use certifi SSL context)
+ctx = ssl.create_default_context(cafile=certifi.where())
+with urllib.request.urlopen(full_url, context=ctx) as response:
     xml_data = response.read()
 
 # Parse XML into Python dict
