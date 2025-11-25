@@ -15,7 +15,7 @@ docs = []
 posts = pd.DataFrame()
 
 def load_from_csv(path=CSV_PATH):
-    """Charge df et docs depuis le CSV si présent."""
+    # --- Charge df et docs depuis le CSV si présent ---
     df = pd.read_csv(path, sep='\t', dtype={'id': int, 'text': str, 'source': str})
     docs_local = []
     for _, row in df.iterrows():
@@ -26,7 +26,7 @@ def load_from_csv(path=CSV_PATH):
     return df, docs_local
 
 def fetch_reddit(limit=10, subreddit_name_str='Basketball'):
-    """Récupère les posts Reddit et ajoute à docs et posts DataFrame."""
+    # --- Récupère les posts Reddit et ajoute à docs et posts DataFrame ---
     reddit = praw.Reddit(
         client_id=os.getenv("CLIENT_ID"),
         client_secret=os.getenv("CLIENT_SECRET"),
@@ -60,7 +60,7 @@ def fetch_reddit(limit=10, subreddit_name_str='Basketball'):
     return posts_df, docs_local
 
 def fetch_arxiv(query='all:Basketball', start=0, max_results=10):
-    """Interroge l'API arXiv et renvoie une liste de docs (text+source)."""
+    # --- Interroge l'API arXiv et renvoie une liste de docs (text+source) ---
     base_url = 'http://export.arxiv.org/api/query'
     params = {
         'search_query': query,
@@ -93,7 +93,7 @@ def fetch_arxiv(query='all:Basketball', start=0, max_results=10):
     return docs_local
 
 def build_dataframe_from_docs(docs_list):
-    """Construit un DataFrame avec colonnes id, text, source."""
+    # --- Construit un DataFrame avec colonnes id, text, source ---
     rows = []
     for i, doc in enumerate(docs_list, start=1):
         rows.append({

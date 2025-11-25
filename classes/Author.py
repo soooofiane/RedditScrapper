@@ -1,17 +1,13 @@
 class Author:
-    def __init__(self, name, ndoc, production):
+    def __init__(self, name, ndoc=0, production=None):
         self.name = name
         self.ndoc = ndoc
-        self.production = production
-    
-    def add(self, doc):
-        self.production[self.ndoc + 1] = doc
-        self.ndoc += 1
-    
-    def __str__(self):
-        return f"docs : {self.production}"
-        
-author = Author("TATO", 2, prod)
+        self.production = production if production is not None else {}
 
-author.add("texte 3 blabla") 
-print(author)         
+    def add(self, doc_id, doc):
+        """Associe un document à l'auteur et met à jour son compteur."""
+        self.production[doc_id] = doc
+        self.ndoc = len(self.production)
+
+    def __str__(self):
+        return f"{self.name} — {self.ndoc} document(s)"

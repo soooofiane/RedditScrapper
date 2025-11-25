@@ -1,7 +1,8 @@
 class Document:
-    def __init__(self, titre, auteur, date, url, texte):
+    def __init__(self, titre, auteur, origine, date, url, texte):
         self.titre = titre
         self.auteur = auteur
+        self.origine = origine
         self.date = date
         self.url = url
         self.texte = texte
@@ -9,6 +10,7 @@ class Document:
     def afficher_infos(self):
         print(f"Titre : {self.titre}")
         print(f"Auteur : {self.auteur}")
+        print(f"Origine : {self.origine}")
         print(f"Date : {self.date}")
         print(f"Url : {self.url}")
         print(f"Text : {self.texte}")
