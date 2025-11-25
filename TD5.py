@@ -7,15 +7,17 @@ from datetime import datetime
 from dotenv import load_dotenv
 import praw
 
-from classes.Document import Document
+from classes.Document import Document, RedditDocument, ArxivDocument
 from classes.Corpus import Corpus
+from classes.DocumentFactory import DocumentFactory
 
 load_dotenv()
 
 JSON_PATH = 'corpus.json'
 
 # Structures globales
-corpus = Corpus("RedditScrapper")
+# Utilisation du Singleton pour obtenir l'instance unique du corpus ---
+corpus = Corpus.getInstance("RedditScrapper")
 posts = pd.DataFrame()
 
 def parse_date(value):
@@ -75,13 +77,15 @@ def fetch_reddit(limit=10, subreddit_name_str='Basketball'):
             post.created
         ])
         texte = post.selftext.replace('\n', ' ')
-        doc = Document(
+        # --- Utilisation de la Factory pour créer un RedditDocument ---
+        doc = DocumentFactory.create_document(
+            source='reddit',
             titre=post.title,
             auteur=str(post.author) if post.author else 'inconnu',
-            source='reddit',
             date=datetime.fromtimestamp(post.created),
             url=post.url,
-            texte=texte
+            texte=texte,
+            nb_commentaires=post.num_comments
         )
         documents.append(doc)
 
@@ -123,20 +127,27 @@ def fetch_arxiv(query='all:Basketball', start=0, max_results=10):
         except ValueError:
             date_pub = None
         author_field = entry.get('author', {})
+        co_auteurs = []
         if isinstance(author_field, list):
-            auteur = ', '.join([a.get('name', '') for a in author_field if isinstance(a, dict)]) or 'arxiv'
+            co_auteurs = [a.get('name', '') for a in author_field if isinstance(a, dict) and a.get('name')]
         elif isinstance(author_field, dict):
-            auteur = author_field.get('name', 'arxiv')
-        else:
-            auteur = 'arxiv'
+            nom_auteur = author_field.get('name', '')
+            if nom_auteur:
+                co_auteurs = [nom_auteur]
+        
+        # Premier auteur pour le champ auteur (compatibilité)
+        auteur = co_auteurs[0] if co_auteurs else 'arxiv'
+        
         url = entry.get('id', '')
-        doc = Document(
+        # --- Utilisation de la Factory pour créer un ArxivDocument ---
+        doc = DocumentFactory.create_document(
+            source='arxiv',
             titre=title,
             auteur=auteur,
-            source='arxiv',
             date=date_pub,
             url=url,
-            texte=summary
+            texte=summary,
+            co_auteurs=co_auteurs
         )
         documents.append(doc)
 
@@ -252,6 +263,9 @@ print("Top 3 documents (date décroissante) :")
 corpus.show_by_date(limit=3)
 print("Top 3 documents (ordre alphabétique) :")
 corpus.show_by_title(limit=3)
+
+# --- Affichage des documents par source (Partie 3.2) ---
+corpus.afficher_documents_par_source()
 
 if corpus.authors:
     print("Auteurs disponibles :", ', '.join(sorted(corpus.authors.keys())))

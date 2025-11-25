@@ -6,16 +6,36 @@ from classes.Document import Document
 
 
 class Corpus:
-    def __init__(self, nom):
-        self.nom = nom
-        self.authors = {}
-        self.id2doc = {}
-        self.ndoc = 0
-        self.naut = 0
-        self._next_doc_id = 1
+    # --- Variable de classe pour stocker l'instance unique (Singleton) ---
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, nom=None):
+        # --- Crée une seule instance (Singleton) ---
+        if cls._instance is None:
+            cls._instance = super(Corpus, cls).__new__(cls)
+        return cls._instance
+    
+    def __init__(self, nom=None):
+        # --- Initialise une seule fois (Singleton) ---
+        if not Corpus._initialized:
+            self.nom = nom if nom else "Corpus"
+            self.authors = {}
+            self.id2doc = {}
+            self.ndoc = 0
+            self.naut = 0
+            self._next_doc_id = 1
+            Corpus._initialized = True
+    
+    @classmethod
+    def getInstance(cls, nom=None):
+        # --- Méthode statique pour obtenir l'instance unique ---
+        if cls._instance is None:
+            cls._instance = cls(nom)
+        return cls._instance
 
     def register_document(self, doc, doc_id=None):
-        """Ajoute un document et met à jour les auteurs."""
+        # --- Ajoute un document et met à jour les auteurs ---
         if doc_id is None:
             doc_id = self._next_doc_id
             self._next_doc_id += 1
@@ -29,7 +49,7 @@ class Corpus:
         return doc_id
 
     def get_or_create_author(self, name):
-        """Retourne un auteur existant ou l'initialise."""
+        # --- Retourne un auteur existant ou l'initialise ---
         if not name:
             name = 'inconnu'
         if name not in self.authors:
@@ -37,7 +57,7 @@ class Corpus:
         return self.authors[name]
 
     def show_by_date(self, limit=5):
-        """Affiche les documents triés par date décroissante."""
+        # --- Affiche les documents triés par date décroissante ---
         def normalize_date(doc):
             value = doc.date
             if isinstance(value, datetime):
@@ -62,7 +82,7 @@ class Corpus:
             print(f"[{doc_id}] {doc.date} — {doc.titre}")
 
     def show_by_title(self, limit=5):
-        """Affiche les documents triés par titre."""
+        # --- Affiche les documents triés par titre ---
         sorted_docs = sorted(
             self.id2doc.items(), key=lambda item: item[1].titre or ''
         )
@@ -74,6 +94,17 @@ class Corpus:
             f"Corpus '{self.nom}' — {self.ndoc} document(s), "
             f"{self.naut} auteur(s)"
         )
+    
+    def afficher_documents_par_source(self):
+        # --- Affiche la liste des articles avec leur source (Reddit ou Arxiv) ---
+        print(f"\nListe des documents dans le corpus '{self.nom}':")
+        print("-" * 80)
+        for doc_id in sorted(self.id2doc.keys()):
+            doc = self.id2doc[doc_id]
+            doc_type = doc.getType()
+            print(f"[{doc_id}] {doc.titre} — Source: {doc_type}")
+        print("-" * 80)
+        print(f"Total: {self.ndoc} document(s)")
 
     def format_date_for_csv(self, value):
         # --- Convertit datetime vers une chaîne ISO pour stockage ---
@@ -106,14 +137,20 @@ class Corpus:
             'documents': {}
         }
         for doc_id, doc in self.id2doc.items():
-            data['documents'][str(doc_id)] = {
+            doc_data = {
                 'titre': doc.titre,
                 'auteur': doc.auteur,
-                'origine': doc.origine,
+                'source': doc.source,
                 'date': self.format_date_for_csv(doc.date),
                 'url': doc.url,
                 'texte': doc.texte
             }
+            # Ajouter les attributs spécifiques des sous-classes
+            if hasattr(doc, 'nb_commentaires'):
+                doc_data['nb_commentaires'] = doc.nb_commentaires
+            if hasattr(doc, 'co_auteurs'):
+                doc_data['co_auteurs'] = doc.co_auteurs
+            data['documents'][str(doc_id)] = doc_data
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"Corpus sauvegardé dans '{path}' ({self.ndoc} documents).")
@@ -134,7 +171,7 @@ class Corpus:
             doc = Document(
                 titre=doc_data.get('titre', ''),
                 auteur=doc_data.get('auteur', 'inconnu'),
-                origine=doc_data.get('origine', 'inconnu'),
+                source=doc_data.get('source', 'inconnu'),
                 date=date_value,
                 url=doc_data.get('url', ''),
                 texte=doc_data.get('texte', '')
