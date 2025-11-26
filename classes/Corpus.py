@@ -1,7 +1,11 @@
 import os
 import re
+import string
+import math
+import numpy as np
 import pandas as pd
 from datetime import datetime
+from scipy.sparse import csr_matrix
 
 from classes.Author import Author
 from classes.Document import Document
@@ -198,7 +202,6 @@ class Corpus:
     
     def stats(self):
         # --- Construit le vocabulaire et compte les occurrences en une seule passe ---
-        import string
         frequences = {}  # Dictionnaire pour compter les occurrences (term frequency)
         doc_frequences = {}  # Dictionnaire pour compter les documents contenant chaque mot (document frequency)
         
