@@ -1,4 +1,6 @@
 import os
+import re
+import pandas as pd
 from datetime import datetime
 
 from classes.Author import Author
@@ -24,7 +26,8 @@ class Corpus:
             self.id2doc = {}
             self.ndoc = 0
             self.naut = 0
-            self._next_doc_id = 1
+            self.next_doc_id = 1
+            self.corpus_text = None
             Corpus._initialized = True
     
     @classmethod
@@ -37,15 +40,17 @@ class Corpus:
     def register_document(self, doc, doc_id=None):
         # --- Ajoute un document et met à jour les auteurs ---
         if doc_id is None:
-            doc_id = self._next_doc_id
-            self._next_doc_id += 1
+            doc_id = self.next_doc_id
+            self.next_doc_id += 1
         else:
-            self._next_doc_id = max(self._next_doc_id, doc_id + 1)
+            self.next_doc_id = max(self.next_doc_id, doc_id + 1)
         self.id2doc[doc_id] = doc
         self.ndoc = len(self.id2doc)
         author = self.get_or_create_author(doc.auteur)
         author.add(doc_id, doc)
         self.naut = len(self.authors)
+        # Invalider le cache de la chaîne concaténée ---
+        self.corpus_text = None
         return doc_id
 
     def get_or_create_author(self, name):
@@ -105,7 +110,134 @@ class Corpus:
             print(f"[{doc_id}] {doc.titre} — Source: {doc_type}")
         print("-" * 80)
         print(f"Total: {self.ndoc} document(s)")
-
+    
+    def build_corpus_text(self):
+        # --- Construit la chaîne concaténée une seule fois (lazy loading) ---
+        if self.corpus_text is None:
+            self.corpus_text = ' '.join(
+                doc.texte for doc in self.id2doc.values() if doc.texte
+            )
+        return self.corpus_text
+    
+    def search(self, mot_cle):
+        # --- Recherche les passages contenant le mot-clé dans le corpus ---
+        # Construit la chaîne concaténée si nécessaire (une seule fois)
+        corpus_text = self.build_corpus_text()
+        
+        if not corpus_text:
+            return []
+        
+        # Utilise re pour chercher le mot-clé (insensible à la casse)
+        pattern = re.compile(re.escape(mot_cle), re.IGNORECASE)
+        matches = []
+        
+        # Trouve toutes les occurrences avec contexte
+        for match in pattern.finditer(corpus_text):
+            start = max(0, match.start() - 50)  
+            end = min(len(corpus_text), match.end() + 50)
+            passage = corpus_text[start:end]
+            matches.append(passage)
+        
+        return matches
+    
+    def concorde(self, expression, taille_contexte=30):
+        # --- Construit un concordancier pour une expression donnée ---
+        # Construit la chaîne concaténée si nécessaire (une seule fois)
+        corpus_text = self.build_corpus_text()
+        
+        if not corpus_text:
+            return pd.DataFrame(columns=['contexte gauche', 'motif trouvé', 'contexte droit'])
+        
+        # Utilise re pour chercher l'expression (insensible à la casse)
+        pattern = re.compile(re.escape(expression), re.IGNORECASE)
+        resultats = []
+        
+        # Trouve toutes les occurrences avec contexte gauche et droit
+        for match in pattern.finditer(corpus_text):
+            # Contexte gauche
+            start_gauche = max(0, match.start() - taille_contexte)
+            contexte_gauche = corpus_text[start_gauche:match.start()]
+            
+            # Motif trouvé
+            motif_trouve = match.group()
+            
+            # Contexte droit
+            end_droit = min(len(corpus_text), match.end() + taille_contexte)
+            contexte_droit = corpus_text[match.end():end_droit]
+            
+            resultats.append({
+                'contexte gauche': contexte_gauche,
+                'motif trouvé': motif_trouve,
+                'contexte droit': contexte_droit
+            })
+        
+        # Créer et retourner un DataFrame pandas
+        df = pd.DataFrame(resultats)
+        return df
+    
+    def nettoyer_texte(self, texte):
+        # --- Nettoie une chaîne de caractères ---
+        texte = texte.lower()
+        
+        # Remplacement des passages à la ligne \n par des espaces
+        texte = texte.replace('\n', ' ')
+        texte = texte.replace('\r', ' ')
+        texte = texte.replace('\t', ' ')
+        
+        # Suppression de la ponctuation et des chiffres avec regex
+        # Garde uniquement les lettres et les espaces
+        texte = re.sub(r'[^a-zàâäéèêëïîôùûüÿç\s]', ' ', texte)
+        
+        # Normaliser les espaces multiples en un seul espace
+        texte = re.sub(r'\s+', ' ', texte)
+        
+        # Supprimer les espaces en début et fin
+        texte = texte.strip()
+        
+        return texte
+    
+    def stats(self):
+        # --- Construit le vocabulaire et compte les occurrences en une seule passe ---
+        import string
+        frequences = {}  # Dictionnaire pour compter les occurrences (term frequency)
+        doc_frequences = {}  # Dictionnaire pour compter les documents contenant chaque mot (document frequency)
+        
+        for doc in self.id2doc.values():
+            if doc.texte:
+                # Nettoie le texte
+                texte_nettoye = self.nettoyer_texte(doc.texte)
+                
+                # Créer une regex qui split sur espace, tabulation et ponctuation
+                delimiters = r'[\s' + re.escape(string.punctuation) + r']+'
+                mots = re.split(delimiters, texte_nettoye)
+                
+                # Set pour suivre les mots uniques dans ce document
+                mots_dans_doc = set()
+                
+                # Compter les occurrences directement
+                for mot in mots:
+                    if mot:
+                        frequences[mot] = frequences.get(mot, 0) + 1
+                        mots_dans_doc.add(mot)
+                
+                # Pour chaque mot unique dans ce document, incrémenter la document frequency
+                for mot in mots_dans_doc:
+                    doc_frequences[mot] = doc_frequences.get(mot, 0) + 1
+        
+        # Créer un DataFrame pandas avec les fréquences
+        freq = pd.DataFrame(list(frequences.items()), columns=['mot', 'frequence'])
+        
+        # Ajouter la colonne document frequency
+        freq['document_frequency'] = freq['mot'].map(doc_frequences)
+        
+        freq = freq.sort_values('frequence', ascending=False).reset_index(drop=True)
+        
+        # Afficher le nombre de mots différents dans le corpus
+        nb_mots_differents = len(freq)
+        print(f"\nNombre de mots différents dans le corpus : {nb_mots_differents}")
+        
+        return freq
+    
     def format_date_for_csv(self, value):
         # --- Convertit datetime vers une chaîne ISO pour stockage ---
         if isinstance(value, datetime):
