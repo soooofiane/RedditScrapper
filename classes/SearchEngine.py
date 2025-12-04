@@ -4,6 +4,7 @@ import math
 import pandas as pd
 import numpy as np
 from scipy.sparse import csr_matrix, diags
+from tqdm import tqdm
 
 
 class SearchEngine:
@@ -174,7 +175,8 @@ class SearchEngine:
         resultats = []
         documents = list(self.corpus.id2doc.values())
         
-        for i in range(min(nb_documents, len(indices_tries))):
+        nb_docs_a_traiter = min(nb_documents, len(indices_tries))
+        for i in tqdm(range(nb_docs_a_traiter), desc="Recherche en cours", unit="doc"):
             doc_idx = indices_tries[i]
             score = scores[doc_idx]
             if score > 0:  # Ne garder que les documents avec un score > 0

@@ -361,7 +361,7 @@ else:
             print(f"❌ Erreur lors de la recherche : {e}")
             import traceback
             traceback.print_exc()
-        
+            
         # Test 3 : Recherche interactive
         print("\n" + "-"*80)
         print("TEST 3 : Recherche interactive")
